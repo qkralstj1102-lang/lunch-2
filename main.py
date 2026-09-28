@@ -7,9 +7,9 @@ import streamlit as st
 import plotly.express as px
 
 
-# =========================
+# =========================================================
 # 기본 설정
-# =========================
+# =========================================================
 
 st.set_page_config(
     page_title="학교 급식 데이터",
@@ -23,24 +23,31 @@ MEAL_API = "https://open.neis.go.kr/hub/mealServiceDietInfo"
 API_KEY = st.secrets["NEIS_API_KEY"]
 
 
-# =========================
-# 학교 검색
-# =========================
+# =========================================================
+# 학교 검색 함수
+# =========================================================
 
 @st.cache_data
 def search_school(school_name):
+
     params = {
         "KEY": API_KEY,
         "Type": "json",
         "SCHUL_NM": school_name
     }
 
-    response = requests.get(SCHOOL_API, params=params, timeout=10)
-    data = response.json()
-
     try:
+        response = requests.get(
+            SCHOOL_API,
+            params=params,
+            timeout=10
+        )
+
+        data = response.json()
+
         rows = data["schoolInfo"][1]["row"]
-    except (KeyError, IndexError):
+
+    except Exception:
         return []
 
     result = []
@@ -56,9 +63,9 @@ def search_school(school_name):
     return result
 
 
-# =========================
-# 급식 데이터 가져오기
-# =========================
+# =========================================================
+# 급식 데이터 함수
+# =========================================================
 
 @st.cache_data
 def get_meal_data(
@@ -67,6 +74,7 @@ def get_meal_data(
     start_date,
     end_date
 ):
+
     params = {
         "KEY": API_KEY,
         "Type": "json",
@@ -79,22 +87,29 @@ def get_meal_data(
         "pIndex": 1
     }
 
-    response = requests.get(MEAL_API, params=params, timeout=10)
-    data = response.json()
-
     try:
+        response = requests.get(
+            MEAL_API,
+            params=params,
+            timeout=10
+        )
+
+        data = response.json()
+
         rows = data["mealServiceDietInfo"][1]["row"]
-    except (KeyError, IndexError):
+
+    except Exception:
         return pd.DataFrame()
 
     result = []
 
     for row in rows:
-        cal_info = row.get("CAL_INFO", "")
-        ntr_info = row.get("NTR_INFO", "")
-        menu = row.get("DDISH_NM", "")
 
-        # 칼로리 숫자 추출
+        cal_info = row.get("CAL_INFO", "")
+        menu = row.get("DDISH_NM", "")
+        ntr_info = row.get("NTR_INFO", "")
+
+        # 칼로리 추출
         calorie_match = re.search(
             r"[\d,]+(?:\.\d+)?",
             cal_info
@@ -121,15 +136,16 @@ def get_meal_data(
     return pd.DataFrame(result)
 
 
-# =========================
-# 오늘 급식 가져오기
-# =========================
+# =========================================================
+# 오늘 급식 함수
+# =========================================================
 
 @st.cache_data
 def get_today_meal(
     office_code,
     school_code
 ):
+
     today = date.today().strftime("%Y%m%d")
 
     params = {
@@ -144,17 +160,18 @@ def get_today_meal(
         "pIndex": 1
     }
 
-    response = requests.get(
-        MEAL_API,
-        params=params,
-        timeout=10
-    )
-
-    data = response.json()
-
     try:
+        response = requests.get(
+            MEAL_API,
+            params=params,
+            timeout=10
+        )
+
+        data = response.json()
+
         rows = data["mealServiceDietInfo"][1]["row"]
-    except (KeyError, IndexError):
+
+    except Exception:
         return None
 
     if not rows:
@@ -163,9 +180,43 @@ def get_today_meal(
     return rows[0]
 
 
-# =========================
+# =========================================================
+# 세션 초기화
+# =========================================================
+
+if "schools" not in st.session_state:
+    st.session_state.schools = []
+
+# 혹시 이전 실행에서 잘못된 데이터가 남아 있으면 제거
+st.session_state.schools = [
+    school
+    for school in st.session_state.schools
+    if isinstance(school, dict)
+    and "학교명" in school
+    and "교육청코드" in school
+    and "학교코드" in school
+]
+
+
+# =========================================================
+# 송탄고등학교 기본 등록
+# =========================================================
+
+if len(st.session_state.schools) == 0:
+
+    songtan_results = search_school("송탄고등학교")
+
+    for school in songtan_results:
+
+        if school["학교명"] == "송탄고등학교":
+
+            st.session_state.schools.append(school)
+            break
+
+
+# =========================================================
 # 사이드바
-# =========================
+# =========================================================
 
 st.sidebar.title("🍚 학교 급식 데이터")
 
@@ -178,52 +229,65 @@ page = st.sidebar.radio(
 )
 
 
-# ==========================================================
-# 1. 메인페이지
-# ==========================================================
+# =========================================================
+# PAGE 1 : 메인페이지
+# =========================================================
 
 if page == "🏠 메인페이지":
 
     st.title("🍚 오늘의 학교 급식")
-    st.write("학교를 선택하면 오늘의 급식과 칼로리, 영양정보를 확인할 수 있습니다.")
+
+    st.write(
+        "학교를 선택하면 오늘의 급식 메뉴와 "
+        "칼로리, 영양정보를 확인할 수 있습니다."
+    )
 
     st.divider()
 
-    # 학교 검색
     st.subheader("🏫 학교 선택")
 
-    school_name = st.text_input(
-        "학교 이름을 입력하세요",
+    school_search = st.text_input(
+        "학교 이름을 검색하세요",
         value="송탄고등학교"
     )
 
-    if school_name:
+    if school_search:
 
-        schools = search_school(school_name)
+        results = search_school(school_search)
 
-        if len(schools) == 0:
-            st.warning("검색된 학교가 없습니다.")
+        if not results:
+
+            st.warning(
+                "검색된 학교가 없습니다. 학교 이름을 다시 확인해주세요."
+            )
 
         else:
 
-            school_options = [
-                f"{school['학교명']} ({school['지역']})"
-                for school in schools
-            ]
+            # 검색 결과를 문자열로 표시
+            options = []
 
-            selected_index = st.selectbox(
-                "학교를 선택하세요",
-                range(len(school_options)),
-                format_func=lambda x: school_options[x]
+            for school in results:
+
+                options.append(
+                    f"{school['학교명']} ({school['지역']})"
+                )
+
+            selected_option = st.selectbox(
+                "검색 결과에서 학교를 선택하세요",
+                options
             )
 
-            selected_school = schools[selected_index]
+            selected_index = options.index(
+                selected_option
+            )
+
+            selected_school = results[selected_index]
 
             st.success(
                 f"선택한 학교: {selected_school['학교명']}"
             )
 
-            # 오늘 급식 가져오기
+            # 오늘 급식
             today_meal = get_today_meal(
                 selected_school["교육청코드"],
                 selected_school["학교코드"]
@@ -234,39 +298,52 @@ if page == "🏠 메인페이지":
             if today_meal is None:
 
                 st.info(
-                    "오늘은 등록된 급식 데이터가 없습니다."
+                    "오늘 등록된 급식 정보가 없습니다."
                 )
 
             else:
 
+                # =================================================
+                # 오늘의 급식 메뉴
+                # =================================================
+
                 st.subheader("🍱 오늘의 점심")
 
-                # 메뉴
-                menu = today_meal.get("DDISH_NM", "")
+                menu = today_meal.get(
+                    "DDISH_NM",
+                    ""
+                )
 
-                # <br/> 제거
                 menu_list = re.split(
                     r"<br\s*/?>",
                     menu
                 )
 
-                menu_list = [
-                    re.sub(
-                        r"\([0-9.,]+\)",
-                        "",
-                        item
-                    ).strip()
-                    for item in menu_list
-                    if item.strip()
-                ]
-
-                # 메뉴 표시
                 for item in menu_list:
-                    st.write(f"• {item}")
+
+                    item = item.strip()
+
+                    if item:
+
+                        # 알레르기 번호 제거
+                        item = re.sub(
+                            r"\([0-9.,]+\)",
+                            "",
+                            item
+                        )
+
+                        st.write(
+                            f"• {item.strip()}"
+                        )
 
                 st.divider()
 
+                # =================================================
                 # 칼로리
+                # =================================================
+
+                st.subheader("🔥 오늘의 칼로리")
+
                 cal_info = today_meal.get(
                     "CAL_INFO",
                     ""
@@ -278,23 +355,29 @@ if page == "🏠 메인페이지":
                 )
 
                 if calorie_match:
+
                     calorie = float(
                         calorie_match.group().replace(",", "")
                     )
 
                     st.metric(
-                        "🔥 오늘의 급식 칼로리",
+                        "급식 칼로리",
                         f"{calorie:,.0f} kcal"
                     )
+
                 else:
+
                     st.info(
-                        "오늘의 칼로리 정보가 없습니다."
+                        "칼로리 정보가 없습니다."
                     )
 
                 st.divider()
 
+                # =================================================
                 # 영양정보
-                st.subheader("🥗 영양정보")
+                # =================================================
+
+                st.subheader("🥗 오늘의 영양정보")
 
                 ntr_info = today_meal.get(
                     "NTR_INFO",
@@ -309,20 +392,25 @@ if page == "🏠 메인페이지":
                     )
 
                     for item in nutrition_list:
+
                         item = item.strip()
 
                         if item:
-                            st.write(f"• {item}")
+
+                            st.write(
+                                f"• {item}"
+                            )
 
                 else:
+
                     st.info(
-                        "오늘의 영양정보가 없습니다."
+                        "영양정보가 없습니다."
                     )
 
 
-# ==========================================================
-# 2. 급식 데이터 분석
-# ==========================================================
+# =========================================================
+# PAGE 2 : 급식 데이터 분석
+# =========================================================
 
 elif page == "📊 급식 데이터 분석":
 
@@ -335,116 +423,138 @@ elif page == "📊 급식 데이터 분석":
 
     st.divider()
 
-    # -------------------------
-    # 날짜 설정
-    # -------------------------
+    # =====================================================
+    # 분석 기간
+    # =====================================================
 
     st.sidebar.subheader("📅 분석 기간")
 
-    default_end = date.today()
-    default_start = default_end - timedelta(days=30)
+    today = date.today()
+
+    default_start = today - timedelta(days=30)
 
     date_range = st.sidebar.date_input(
-        "기간 선택",
-        value=(default_start, default_end)
+        "분석할 기간",
+        value=(default_start, today)
     )
 
     if len(date_range) != 2:
-        st.warning("시작 날짜와 끝 날짜를 모두 선택해주세요.")
+
+        st.warning(
+            "시작 날짜와 종료 날짜를 모두 선택해주세요."
+        )
+
         st.stop()
 
-    start_date, end_date = date_range
+    start_date = date_range[0]
+    end_date = date_range[1]
 
-    # -------------------------
+    # =====================================================
     # 학교 검색
-    # -------------------------
+    # =====================================================
 
-    st.sidebar.subheader("🏫 학교 추가")
+    st.sidebar.subheader("🏫 비교 학교 추가")
 
     search_name = st.sidebar.text_input(
         "학교 이름 검색",
-        value=""
+        key="analysis_school_search"
     )
 
     if search_name:
 
-        search_results = search_school(search_name)
+        search_results = search_school(
+            search_name
+        )
 
-        if search_results:
+        if not search_results:
 
-            school_names = [
-                f"{x['학교명']} ({x['지역']})"
-                for x in search_results
-            ]
-
-            selected_search = st.sidebar.selectbox(
-                "검색 결과",
-                range(len(search_results)),
-                format_func=lambda x: school_names[x]
-            )
-
-            selected = search_results[selected_search]
-
-            if st.sidebar.button("➕ 비교 학교에 추가"):
-
-                if "schools" not in st.session_state:
-                    st.session_state.schools = []
-
-                if selected not in st.session_state.schools:
-                    st.session_state.schools.append(selected)
-
-                    st.sidebar.success(
-                        f"{selected['학교명']} 추가됨"
-                    )
-
-        else:
             st.sidebar.warning(
                 "검색된 학교가 없습니다."
             )
 
-    # -------------------------
-    # 송탄고등학교 기본 추가
-    # -------------------------
+        else:
 
-    if "schools" not in st.session_state:
+            result_names = []
 
-        st.session_state.schools = []
+            for school in search_results:
 
-        songtan = search_school("송탄고등학교")
+                result_names.append(
+                    f"{school['학교명']} ({school['지역']})"
+                )
 
-        for school in songtan:
+            selected_result = st.sidebar.selectbox(
+                "검색 결과",
+                result_names,
+                key="analysis_school_result"
+            )
 
-            if school["학교명"] == "송탄고등학교":
-                st.session_state.schools.append(school)
-                break
+            selected_index = result_names.index(
+                selected_result
+            )
 
-    # -------------------------
-    # 학교 선택
-    # -------------------------
+            selected_school = search_results[
+                selected_index
+            ]
 
-    # 학교 정보가 올바른 형태인지 확인
-valid_schools = []
+            if st.sidebar.button(
+                "➕ 비교 학교에 추가"
+            ):
 
-for school in st.session_state.schools:
-    if isinstance(school, dict) and "학교명" in school:
-        valid_schools.append(school)
+                already_exists = False
 
-st.session_state.schools = valid_schools
+                for school in st.session_state.schools:
 
-school_names = [
-    school["학교명"]
-    for school in st.session_state.schools
-]
+                    if (
+                        school["학교명"]
+                        == selected_school["학교명"]
+                        and
+                        school["학교코드"]
+                        == selected_school["학교코드"]
+                    ):
+                        already_exists = True
+                        break
 
-    if len(school_names) == 0:
+                if already_exists:
+
+                    st.sidebar.info(
+                        "이미 추가된 학교입니다."
+                    )
+
+                else:
+
+                    st.session_state.schools.append(
+                        selected_school
+                    )
+
+                    st.sidebar.success(
+                        f"{selected_school['학교명']} 추가 완료!"
+                    )
+
+                    st.rerun()
+
+    # =====================================================
+    # 현재 등록된 학교
+    # =====================================================
+
+    school_names = [
+        school["학교명"]
+        for school in st.session_state.schools
+    ]
+
+    if not school_names:
 
         st.info(
             "왼쪽에서 비교할 학교를 추가해주세요."
         )
+
         st.stop()
 
+    # =====================================================
+    # 분석할 학교 선택
+    # =====================================================
+
     selected_names = st.sidebar.multiselect(
-        "비교할 학교 선택",
+        "분석할 학교 선택",
         school_names,
         default=school_names
     )
@@ -452,23 +562,34 @@ school_names = [
     if len(selected_names) < 3:
 
         st.warning(
-            "비교하려면 최소 3개의 학교를 선택해주세요."
+            "학교 비교를 위해 최소 3개의 학교를 선택해주세요."
         )
+
         st.stop()
 
-    selected_schools = [
-        school
-        for school in st.session_state.schools
-        if school["학교명"] in selected_names
-    ]
+    selected_schools = []
 
-    # -------------------------
-    # 데이터 수집
-    # -------------------------
+    for school in st.session_state.schools:
+
+        if school["학교명"] in selected_names:
+
+            selected_schools.append(
+                school
+            )
+
+    # =====================================================
+    # 데이터 가져오기
+    # =====================================================
 
     all_data = []
 
-    for school in selected_schools:
+    progress = st.progress(0)
+
+    total = len(selected_schools)
+
+    for i, school in enumerate(
+        selected_schools
+    ):
 
         df = get_meal_data(
             school["교육청코드"],
@@ -483,11 +604,18 @@ school_names = [
 
             all_data.append(df)
 
+        progress.progress(
+            (i + 1) / total
+        )
+
+    progress.empty()
+
     if not all_data:
 
         st.error(
             "선택한 기간에 급식 데이터가 없습니다."
         )
+
         st.stop()
 
     df_all = pd.concat(
@@ -495,34 +623,41 @@ school_names = [
         ignore_index=True
     )
 
-    # -------------------------
-    # 기본 통계
-    # -------------------------
+    # 칼로리 없는 데이터 제거
+    df_all = df_all.dropna(
+        subset=["칼로리"]
+    )
 
-    st.subheader("📌 기본 통계")
+    # =====================================================
+    # 기본 정보
+    # =====================================================
+
+    st.subheader("📌 분석 정보")
 
     col1, col2, col3 = st.columns(3)
 
     col1.metric(
-        "분석 학교 수",
+        "분석 학교",
         f"{len(selected_schools)}개"
     )
 
     col2.metric(
-        "급식 데이터 수",
+        "급식 데이터",
         f"{len(df_all)}개"
     )
 
     col3.metric(
-        "전체 평균 칼로리",
+        "전체 평균",
         f"{df_all['칼로리'].mean():,.0f} kcal"
     )
 
-    # -------------------------
+    # =====================================================
     # 그래프 1
-    # -------------------------
+    # =====================================================
 
-    st.subheader("1️⃣ 학교별 평균 급식 칼로리")
+    st.subheader(
+        "1️⃣ 학교별 평균 급식 칼로리"
+    )
 
     school_avg = (
         df_all
@@ -530,6 +665,10 @@ school_names = [
         .mean()
         .reset_index()
     )
+
+    school_avg["칼로리"] = school_avg[
+        "칼로리"
+    ].round(1)
 
     fig1 = px.bar(
         school_avg,
@@ -541,7 +680,7 @@ school_names = [
 
     fig1.update_layout(
         xaxis_title="학교",
-        yaxis_title="평균 칼로리(kcal)"
+        yaxis_title="평균 칼로리 (kcal)"
     )
 
     st.plotly_chart(
@@ -549,11 +688,13 @@ school_names = [
         use_container_width=True
     )
 
-    # -------------------------
+    # =====================================================
     # 그래프 2
-    # -------------------------
+    # =====================================================
 
-    st.subheader("2️⃣ 날짜별 급식 칼로리")
+    st.subheader(
+        "2️⃣ 날짜별 급식 칼로리"
+    )
 
     fig2 = px.line(
         df_all.sort_values("날짜"),
@@ -566,7 +707,7 @@ school_names = [
 
     fig2.update_layout(
         xaxis_title="날짜",
-        yaxis_title="칼로리(kcal)"
+        yaxis_title="칼로리 (kcal)"
     )
 
     st.plotly_chart(
@@ -574,11 +715,13 @@ school_names = [
         use_container_width=True
     )
 
-    # -------------------------
+    # =====================================================
     # 통계표
-    # -------------------------
+    # =====================================================
 
-    st.subheader("📋 학교별 통계")
+    st.subheader(
+        "📋 학교별 칼로리 통계"
+    )
 
     stats = (
         df_all
@@ -600,9 +743,9 @@ school_names = [
         hide_index=True
     )
 
-    # ======================================================
+    # =====================================================
     # 추가 질문
-    # ======================================================
+    # =====================================================
 
     st.divider()
 
@@ -614,6 +757,10 @@ school_names = [
         "### 송탄고등학교와 주변 학교의 급식 칼로리는 "
         "요일에 따라 어떤 차이를 보일까?"
     )
+
+    # =====================================================
+    # 요일 데이터 만들기
+    # =====================================================
 
     weekday_order = [
         "월요일",
@@ -637,13 +784,26 @@ school_names = [
         })
     )
 
+    # 주말 제거
     df_weekday = df_weekday[
-        df_weekday["요일"].isin(weekday_order)
+        df_weekday["요일"].isin(
+            weekday_order
+        )
     ]
+
+    # =====================================================
+    # 그래프 3 : 요일별 학교 평균
+    # =====================================================
+
+    st.subheader(
+        "3️⃣ 요일별 평균 급식 칼로리"
+    )
 
     weekday_avg = (
         df_weekday
-        .groupby(["학교명", "요일"])["칼로리"]
+        .groupby(
+            ["학교명", "요일"]
+        )["칼로리"]
         .mean()
         .reset_index()
     )
@@ -654,13 +814,9 @@ school_names = [
         ordered=True
     )
 
-    weekday_avg = weekday_avg.sort_values("요일")
-
-    # -------------------------
-    # 요일별 학교 비교 그래프
-    # -------------------------
-
-    st.write("### 3️⃣ 요일별 평균 급식 칼로리")
+    weekday_avg = weekday_avg.sort_values(
+        "요일"
+    )
 
     fig3 = px.line(
         weekday_avg,
@@ -673,7 +829,7 @@ school_names = [
 
     fig3.update_layout(
         xaxis_title="요일",
-        yaxis_title="평균 칼로리(kcal)"
+        yaxis_title="평균 칼로리 (kcal)"
     )
 
     st.plotly_chart(
@@ -681,9 +837,13 @@ school_names = [
         use_container_width=True
     )
 
-    # -------------------------
-    # 요일별 전체 평균
-    # -------------------------
+    # =====================================================
+    # 그래프 4 : 전체 요일 평균
+    # =====================================================
+
+    st.subheader(
+        "4️⃣ 요일별 전체 평균 급식 칼로리"
+    )
 
     overall_weekday = (
         df_weekday
@@ -698,9 +858,9 @@ school_names = [
         ordered=True
     )
 
-    overall_weekday = overall_weekday.sort_values("요일")
-
-    st.write("### 4️⃣ 요일별 전체 평균")
+    overall_weekday = overall_weekday.sort_values(
+        "요일"
+    )
 
     fig4 = px.bar(
         overall_weekday,
@@ -712,7 +872,7 @@ school_names = [
 
     fig4.update_layout(
         xaxis_title="요일",
-        yaxis_title="평균 칼로리(kcal)"
+        yaxis_title="평균 칼로리 (kcal)"
     )
 
     st.plotly_chart(
@@ -720,11 +880,13 @@ school_names = [
         use_container_width=True
     )
 
-    # -------------------------
-    # 요일별 학교 비교표
-    # -------------------------
+    # =====================================================
+    # 요일별 표
+    # =====================================================
 
-    st.write("### 📋 학교별 요일 평균")
+    st.subheader(
+        "📋 학교별 요일 평균"
+    )
 
     weekday_table = weekday_avg.pivot(
         index="학교명",
@@ -738,4 +900,37 @@ school_names = [
         weekday_table,
         use_container_width=True
     )
-    
+
+    # =====================================================
+    # 분석 결과 간단 표시
+    # =====================================================
+
+    if not overall_weekday.empty:
+
+        highest_day = overall_weekday.loc[
+            overall_weekday["칼로리"].idxmax()
+        ]
+
+        lowest_day = overall_weekday.loc[
+            overall_weekday["칼로리"].idxmin()
+        ]
+
+        st.divider()
+
+        st.subheader(
+            "💡 요일별 분석 결과"
+        )
+
+        col1, col2 = st.columns(2)
+
+        col1.metric(
+            "평균 칼로리가 가장 높은 요일",
+            highest_day["요일"],
+            f"{highest_day['칼로리']:.0f} kcal"
+        )
+
+        col2.metric(
+            "평균 칼로리가 가장 낮은 요일",
+            lowest_day["요일"],
+            f"{lowest_day['칼로리']:.0f} kcal"
+        )
