@@ -422,10 +422,19 @@ elif page == "📊 급식 데이터 분석":
     # 학교 선택
     # -------------------------
 
-    school_names = [
-        school["학교명"]
-        for school in st.session_state.schools
-    ]
+    # 학교 정보가 올바른 형태인지 확인
+valid_schools = []
+
+for school in st.session_state.schools:
+    if isinstance(school, dict) and "학교명" in school:
+        valid_schools.append(school)
+
+st.session_state.schools = valid_schools
+
+school_names = [
+    school["학교명"]
+    for school in st.session_state.schools
+]
 
     if len(school_names) == 0:
 
